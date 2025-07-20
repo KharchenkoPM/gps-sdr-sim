@@ -82,6 +82,7 @@ Options:
   -L <wnslf,dn,dtslf> User leap future event in GPS week number, day number, next leap second e.g. 2347,3,19
   -t <date,time>   Scenario start time YYYY/MM/DD,hh:mm:ss
   -T <date,time>   Overwrite TOC and TOE to scenario start time
+  -n <min_sats>    Search for a start time with at least <min_sats> satellites.
   -d <duration>    Duration [sec] (dynamic mode max: 300 static mode max: 86400)
   -o <output>      I/Q sampling data file (default: gpssim.bin ; use - for stdout)
   -s <frequency>   Sampling frequency [Hz] (default: 2600000)

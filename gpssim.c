@@ -1716,6 +1716,7 @@ void usage(void)
 		"  -L <wnslf,dn,dtslf> User leap future event in GPS week number, day number, next leap second e.g. 2347,3,19\n"
 		"  -t <date,time>   Scenario start time YYYY/MM/DD,hh:mm:ss\n"
 		"  -T <date,time>   Overwrite TOC and TOE to scenario start time\n"
+		"  -n <min_sats>    Search for a start time with at least <min_sats> satellites.\n"
 		"  -d <duration>    Duration [sec] (dynamic mode max: %.0f, static mode max: %d)\n"
 		"  -o <output>      I/Q sampling data file (default: gpssim.bin)\n"
 		"  -s <frequency>   Sampling frequency [Hz] (default: 2600000)\n"
@@ -1793,6 +1794,9 @@ int main(int argc, char *argv[])
 	ionoutc_t ionoutc;
 	int path_loss_enable = TRUE;
 
+	int min_sats = 0; 
+	int search_for_sats = FALSE; 
+
 	////////////////////////////////////////////////////////////
 	// Read options
 	////////////////////////////////////////////////////////////
@@ -1816,7 +1820,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	while ((result=getopt(argc,argv,"e:u:x:g:c:l:o:s:b:L:T:t:d:ipv"))!=-1)
+	while ((result=getopt(argc,argv,"e:u:x:g:c:l:o:s:b:L:T:t:d:ipvn:"))!=-1)
 	{
 		switch (result)
 		{
@@ -1944,6 +1948,17 @@ int main(int argc, char *argv[])
 		case 'v':
 			verb = TRUE;
 			break;
+		// >>> Satellites number <<<
+		case 'n':
+			search_for_sats = TRUE;
+			min_sats = atoi(optarg);
+			if (min_sats < 1 || min_sats > MAX_CHAN)
+			{
+				fprintf(stderr, "ERROR: Minimum satellites must be between 1 and %d.\n", MAX_CHAN);
+				exit(1);
+			}
+			break;
+        // >>> Satellites number <<<
 		case ':':
 		case '?':
 			usage();
@@ -2145,37 +2160,109 @@ int main(int argc, char *argv[])
 		t0 = tmin;
 	}
 
-	fprintf(stderr, "Start time = %4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n",
-		t0.y, t0.m, t0.d, t0.hh, t0.mm, t0.sec, g0.week, g0.sec);
-	fprintf(stderr, "Duration = %.1f [sec]\n", ((double)numd)/10.0);
+    // >>> START OF THE NEW CODE BLOCK <<<
 
-	// Select the current set of ephemerides
-	ieph = -1;
-
-	for (i=0; i<neph; i++)
+	if (search_for_sats)
 	{
-		for (sv=0; sv<MAX_SAT; sv++)
+		int visible_sats = 0;
+		double azel_search[2]; // Temporary array for visibility check
+
+		fprintf(stderr, "\nSearching for a time with at least %d visible satellites...\n", min_sats);
+
+		while(visible_sats < min_sats)
 		{
-			if (eph[i][sv].vflg == 1)
+			// Check if we have exceeded the ephemeris file data range
+			if (subGpsTime(gmax, g0) < 0.0)
 			{
-				dt = subGpsTime(g0, eph[i][sv].toc);
-				if (dt>=-SECONDS_IN_HOUR && dt<SECONDS_IN_HOUR)
+				fprintf(stderr, "\nERROR: Search time exceeds ephemeris data range. Max satellites found: %d.\n", visible_sats);
+				fprintf(stderr, "tmax = %4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n",
+					tmax.y, tmax.m, tmax.d, tmax.hh, tmax.mm, tmax.sec,
+					gmax.week, gmax.sec);
+				exit(1);
+			}
+
+			// Select the current set of ephemerides for the current time g0
+			ieph = -1;
+			for (i=0; i<neph; i++)
+			{
+				for (sv=0; sv<MAX_SAT; sv++)
 				{
-					ieph = i;
-					break;
+					if (eph[i][sv].vflg == 1)
+					{
+						dt = subGpsTime(g0, eph[i][sv].toc);
+						if (dt >= -SECONDS_IN_HOUR && dt < SECONDS_IN_HOUR)
+						{
+							ieph = i;
+							break;
+						}
+					}
 				}
+				if (ieph>=0)
+					break;
+			}
+
+			if (ieph == -1)
+			{
+				fprintf(stderr, "\nERROR: Could not find a valid set of ephemerides for the current time.\n");
+				exit(1);
+			}
+
+			// Count the number of visible satellites at the current time g0
+			visible_sats = 0;
+			for (sv=0; sv<MAX_SAT; sv++)
+			{
+				// Use xyz[0] for static position or the initial motion point
+				if(checkSatVisibility(eph[ieph][sv], g0, xyz[0], elvmask, azel_search) == 1)
+				{
+					visible_sats++;
+				}
+			}
+
+			// If there are fewer than min_sats satellites, advance time by 1 hour
+			if (visible_sats < min_sats)
+			{
+				gps2date(&g0, &t0);
+				fprintf(stderr, "Time: %02d:%02d:%02.0f, Visible satellites: %d. Advancing time by 1 hour.\n", t0.hh, t0.mm, t0.sec, visible_sats);
+				g0 = incGpsTime(g0, 3600.0); // Advance by 3600 seconds
 			}
 		}
 
-		if (ieph>=0) // ieph has been set
-			break;
+		// Satellites found, update the calendar time and print the final start time
+		gps2date(&g0, &t0);
+		fprintf(stderr, "\nFound %d satellites. Using new start time.\n", visible_sats);
+		fprintf(stderr, "Start time = %4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n\n",
+		t0.y, t0.m, t0.d, t0.hh, t0.mm, t0.sec, g0.week, g0.sec);
+	} else {
+		// Select the current set of ephemerides
+	    ieph = -1;
+    
+	    for (i=0; i<neph; i++)
+	    {
+	    	for (sv=0; sv<MAX_SAT; sv++)
+	    	{
+	    		if (eph[i][sv].vflg == 1)
+	    		{
+	    			dt = subGpsTime(g0, eph[i][sv].toc);
+	    			if (dt>=-SECONDS_IN_HOUR && dt<SECONDS_IN_HOUR)
+	    			{
+	    				ieph = i;
+	    				break;
+	    			}
+	    		}
+	    	}
+    
+	    	if (ieph>=0) // ieph has been set
+	    		break;
+	    }
+    
+	    if (ieph == -1)
+	    {
+	    	fprintf(stderr, "ERROR: No current set of ephemerides has been found.\n");
+	    	exit(1);
+	    }
 	}
 
-	if (ieph == -1)
-	{
-		fprintf(stderr, "ERROR: No current set of ephemerides has been found.\n");
-		exit(1);
-	}
+	// >>> END OF THE NEW CODE BLOCK <<<
 
 	////////////////////////////////////////////////////////////
 	// Baseband signal buffer and output file
@@ -2241,9 +2328,10 @@ int main(int argc, char *argv[])
 
 	for(i=0; i<MAX_CHAN; i++)
 	{
-		if (chan[i].prn>0)
+		if (chan[i].prn>0) {
 			fprintf(stderr, "%02d %6.1f %5.1f %11.1f %5.1f\n", chan[i].prn,
 				chan[i].azel[0]*R2D, chan[i].azel[1]*R2D, chan[i].rho0.d, chan[i].rho0.iono_delay);
+		}
 	}
 
 	////////////////////////////////////////////////////////////

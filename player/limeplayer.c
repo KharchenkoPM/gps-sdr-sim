@@ -10,7 +10,7 @@
 #include <getopt.h>
 #include <signal.h>
 
-#include <lime/LimeSuite.h>
+#include <LimeSuite.h>
 
 #define EXIT_CODE_CONTROL_C (-3)
 #define EXIT_CODE_NO_DEVICE (-2)
