@@ -2160,7 +2160,7 @@ int main(int argc, char *argv[])
 		t0 = tmin;
 	}
 
-    // >>> START OF THE NEW CODE BLOCK <<<
+  // >>> START OF THE NEW CODE BLOCK<<<
 
 	if (search_for_sats)
 	{
@@ -2169,7 +2169,7 @@ int main(int argc, char *argv[])
 
 		fprintf(stderr, "\nSearching for a time with at least %d visible satellites...\n", min_sats);
 
-		while(visible_sats < min_sats)
+		while(1) // We will use 'break' to exit this loop
 		{
 			// Check if we have exceeded the ephemeris file data range
 			if (subGpsTime(gmax, g0) < 0.0)
@@ -2218,50 +2218,61 @@ int main(int argc, char *argv[])
 				}
 			}
 
-			// If there are fewer than min_sats satellites, advance time by 1 hour
+			// Always print the result of the current check
+			gps2date(&g0, &t0);
+			fprintf(stderr, "Time: %02d:%02d:%02.0f, Visible satellites: %d.\n", t0.hh, t0.mm, t0.sec, visible_sats);
+
+			// If there are fewer than min_sats satellites, advance time. Otherwise, break the loop.
 			if (visible_sats < min_sats)
 			{
-				gps2date(&g0, &t0);
-				fprintf(stderr, "Time: %02d:%02d:%02.0f, Visible satellites: %d. Advancing time by 1 hour.\n", t0.hh, t0.mm, t0.sec, visible_sats);
+				fprintf(stderr, "Advancing time by 1 hour...\n");
 				g0 = incGpsTime(g0, 3600.0); // Advance by 3600 seconds
+			}
+			else
+			{
+				break; // Success, exit the loop
 			}
 		}
 
-		// Satellites found, update the calendar time and print the final start time
-		gps2date(&g0, &t0);
+		// Satellites found, print the final start time
 		fprintf(stderr, "\nFound %d satellites. Using new start time.\n", visible_sats);
 		fprintf(stderr, "Start time = %4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n\n",
 		t0.y, t0.m, t0.d, t0.hh, t0.mm, t0.sec, g0.week, g0.sec);
 	} else {
+		// This 'else' block is for when -n is not used. It remains the same.
 		// Select the current set of ephemerides
-	    ieph = -1;
-    
-	    for (i=0; i<neph; i++)
-	    {
-	    	for (sv=0; sv<MAX_SAT; sv++)
-	    	{
-	    		if (eph[i][sv].vflg == 1)
-	    		{
-	    			dt = subGpsTime(g0, eph[i][sv].toc);
-	    			if (dt>=-SECONDS_IN_HOUR && dt<SECONDS_IN_HOUR)
-	    			{
-	    				ieph = i;
-	    				break;
-	    			}
-	    		}
-	    	}
-    
-	    	if (ieph>=0) // ieph has been set
-	    		break;
-	    }
-    
-	    if (ieph == -1)
-	    {
-	    	fprintf(stderr, "ERROR: No current set of ephemerides has been found.\n");
-	    	exit(1);
-	    }
+		ieph = -1;
+	
+		for (i=0; i<neph; i++)
+		{
+			for (sv=0; sv<MAX_SAT; sv++)
+			{
+				if (eph[i][sv].vflg == 1)
+				{
+					dt = subGpsTime(g0, eph[i][sv].toc);
+					if (dt>=-SECONDS_IN_HOUR && dt<SECONDS_IN_HOUR)
+					{
+						ieph = i;
+						break;
+					}
+				}
+			}
+	
+			if (ieph>=0) // ieph has been set
+				break;
+		}
+	
+		if (ieph == -1)
+		{
+			fprintf(stderr, "ERROR: No current set of ephemerides has been found.\n");
+			exit(1);
+		}
+		
+		// Print the original start time message
+		fprintf(stderr, "Start time = %4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n",
+		t0.y, t0.m, t0.d, t0.hh, t0.mm, t0.sec, g0.week, g0.sec);
 	}
-
+	
 	// >>> END OF THE NEW CODE BLOCK <<<
 
 	////////////////////////////////////////////////////////////
